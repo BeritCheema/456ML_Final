@@ -1,4 +1,5 @@
 #%%
+import numpy
 from tqdm import tqdm
 import kagglehub
 # Download latest version
@@ -27,6 +28,8 @@ print(f"images PNEUMONIA: {len(os.listdir(train_pneumonia))}")
 print(f"images NORMAL: {len(os.listdir(train_normal))}")
 
 #%% 
+mean_nums = [0.485, 0.456, 0.406]
+std_nums = [0.229, 0.224, 0.225]
 from torchvision import transforms
 train_transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -35,6 +38,7 @@ train_transform = transforms.Compose([
     transforms.ColorJitter(0.1, 0.1, 0.1, 0.1),
     transforms.RandomRotation(25),
     transforms.ToTensor(),
+    transforms.Normalize(mean_nums, std_nums),
 ])
 test_transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -66,15 +70,20 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.model = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
+            nn.Dropout(0.1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(2),
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
             nn.Dropout(0.1),
-            nn.MaxPool2d(2),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
+            nn.MaxPool2d(2),
             nn.Conv2d(64, 32, kernel_size=3, stride=2, padding=1),
-            nn.MaxPool2d(2),
+            nn.BatchNorm2d(32),
+            nn.Dropout(0.1),
             nn.ReLU(),
+            nn.MaxPool2d(2),
             nn.Conv2d(32, 16, kernel_size=3, stride=2, padding=1),
             nn.Flatten(),
             nn.Linear(16 * 4 * 4, 1),
@@ -90,15 +99,16 @@ model = Model()
 model.to(device)
 model.train()
 # %%
-loss_per_epoch = []
+train_epoch = []
+val_epoch = []
 accuracy = Accuracy(task="binary", num_classes=2).to(device)
 precision = Precision(task="binary", num_classes=2).to(device)
 recall = Recall(task="binary", num_classes=2).to(device)
 f1_score = F1Score(task="binary", num_classes=2).to(device)
 confusion_matrix = ConfusionMatrix(task="binary", num_classes=2).to(device)
-loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([0.2], device=device))
+loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([0.1], device=device))
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-for epoch in range(2):
+for epoch in range(15):
     total_loss = 0.0
     for i, (images, labels) in tqdm(enumerate(train_loader), total=len(train_loader)):
         images = images.to(device)
@@ -118,7 +128,7 @@ for epoch in range(2):
         confusion_matrix.update(probs, labels)
     
     print(f"Epoch {epoch}, Loss: {total_loss / len(train_loader):.4f}")
-    loss_per_epoch.append([epoch, total_loss / len(train_loader)])
+    train_epoch.append([epoch, total_loss / len(train_loader), accuracy.compute().item(), precision.compute().item(), f1_score.compute().item()])
     print(f"Accuracy: {accuracy.compute()}")
     print(f"Precision: {precision.compute()}")
     print(f"Recall: {recall.compute()}")
@@ -148,7 +158,7 @@ for epoch in range(2):
             f1_score.update(probs, labels)
             confusion_matrix.update(probs, labels)
 
-        loss_per_epoch[-1].append(total_loss / len(loader))
+        val_epoch.append([total_loss / len(loader),accuracy.compute().item(), precision.compute().item(), f1_score.compute().item()])
         print("\n____VALIDATION____")
         print(f"Accuracy: {accuracy.compute()}")
         print(f"Precision: {precision.compute()}")
@@ -162,26 +172,56 @@ for epoch in range(2):
         confusion_matrix.reset()
         print("\n\n\n")
 
-plt.title("Chest XRAY Model Data")
-epochs = [entry[0] for entry in loss_per_epoch]
-train_losses = [
-    i[1].cpu().item() if torch.is_tensor(i[1]) else i[1]
-    for i in loss_per_epoch
-]
-val_losses = [
-    i[2].cpu().item() if torch.is_tensor(i[2]) else i[2]
-    for i in loss_per_epoch
-]
-plt.plot(epochs, train_losses, 'r-', label="Train")
-plt.plot(epochs, val_losses, 'b-', label="Val")
-plt.xlabel("Epoch")
-plt.ylabel("Loss")
+def _to_scalar(value):
+    if hasattr(value, "compute"):
+        value = value.compute()
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu().item()
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except TypeError:
+            pass
+    return float(value)
 
+epochs = [entry[0] for entry in train_epoch]
+train_losses = [_to_scalar(entry[1]) for entry in train_epoch]
+val_losses = [_to_scalar(entry[0]) for entry in val_epoch]
+train_accuracy = [_to_scalar(entry[2]) for entry in train_epoch]
+train_precision = [_to_scalar(entry[3]) for entry in train_epoch]
+train_f1 = [_to_scalar(entry[4]) for entry in train_epoch]
+val_accuracy = [_to_scalar(entry[1]) for entry in val_epoch]
+val_precision = [_to_scalar(entry[2]) for entry in val_epoch]
+val_f1 = [_to_scalar(entry[3]) for entry in val_epoch]
+
+fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
+axes = axes.flatten()
+
+def _plot_metric(ax, train_values, val_values, title):
+    ax.plot(epochs[:len(train_values)], train_values, label="Train", color="tab:red")
+    if val_values:
+        ax.plot(epochs[:len(val_values)], val_values, label="Val", color="tab:blue")
+    ax.set_title(title)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(title)
+    ax.grid(True, alpha=0.2)
+
+_plot_metric(axes[0], train_losses, val_losses, "Loss")
+_plot_metric(axes[1], train_accuracy, val_accuracy, "Accuracy")
+_plot_metric(axes[2], train_precision, val_precision, "Precision")
+_plot_metric(axes[3], train_f1, val_f1, "F1 Score")
+
+handles, labels = axes[0].get_legend_handles_labels()
+if handles:
+    fig.legend(handles, labels, loc="upper right")
+fig.suptitle("Chest X-Ray Model Metrics")
+
+import time
 if args.save:
     run_label = args.save
     run_dir = "Results"
     os.makedirs(run_dir, exist_ok=True)
-    plot_path = os.path.join(run_dir, f"{run_label}.png")
+    plot_path = os.path.join(run_dir, f"{run_label}-{time.time()}.png")
     plt.savefig(plot_path)
 
 plt.show()
