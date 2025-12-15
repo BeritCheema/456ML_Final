@@ -11,11 +11,12 @@ print("Path to dataset files:", path)
 
 #%%
 import argparse
-parser = argparse.ArgumentParser(
-    prog="Model"
-)
-parser.add_argument("-s, --save", action='store_false')
-parser.add_argument("-n, --name", type="string")
+parser = argparse.ArgumentParser(prog="Model")
+parser.add_argument(
+    "-s",
+    "--save",
+    type=str, default=None)
+args = parser.parse_args()
 
 
 #%%
@@ -97,7 +98,7 @@ f1_score = F1Score(task="binary", num_classes=2).to(device)
 confusion_matrix = ConfusionMatrix(task="binary", num_classes=2).to(device)
 loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([0.2], device=device))
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-for epoch in range(5):
+for epoch in range(2):
     total_loss = 0.0
     for i, (images, labels) in tqdm(enumerate(train_loader), total=len(train_loader)):
         images = images.to(device)
@@ -164,15 +165,23 @@ for epoch in range(5):
 plt.title("Chest XRAY Model Data")
 epochs = [entry[0] for entry in loss_per_epoch]
 train_losses = [
-    val.cpu().item() if torch.is_tensor(val) else val
-    for i, val, i in loss_per_epoch
+    i[1].cpu().item() if torch.is_tensor(i[1]) else i[1]
+    for i in loss_per_epoch
 ]
 val_losses = [
-    val.cpu().item() if torch.is_tensor(val) else val
-    for i, i, val in loss_per_epoch
+    i[2].cpu().item() if torch.is_tensor(i[2]) else i[2]
+    for i in loss_per_epoch
 ]
-plt.plot(epochs, train_losses, 'rl', label="Train")
-plt.plot(epochs, val_losses, 'bl', label="Val")
+plt.plot(epochs, train_losses, 'r-', label="Train")
+plt.plot(epochs, val_losses, 'b-', label="Val")
 plt.xlabel("Epoch")
 plt.ylabel("Loss")
+
+if args.save:
+    run_label = args.save
+    run_dir = "Results"
+    os.makedirs(run_dir, exist_ok=True)
+    plot_path = os.path.join(run_dir, f"{run_label}.png")
+    plt.savefig(plot_path)
+
 plt.show()
