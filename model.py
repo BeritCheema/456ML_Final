@@ -37,6 +37,7 @@ train_transform = transforms.Compose([
     transforms.RandomHorizontalFlip(0.4),
     transforms.ColorJitter(0.1, 0.1, 0.1, 0.1),
     transforms.RandomRotation(25),
+    transforms.RandomResizedCrop(224, scale=(0.8,1.0)),
     transforms.ToTensor(),
     transforms.Normalize(mean_nums, std_nums),
 ])
@@ -70,19 +71,19 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.model = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
-            nn.Dropout(0.1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
+            nn.Dropout(0.3),
             nn.MaxPool2d(2),
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.Dropout(0.1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
+            nn.Dropout(0.3),
             nn.MaxPool2d(2),
             nn.Conv2d(64, 32, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(32),
-            nn.Dropout(0.1),
             nn.ReLU(),
+            nn.Dropout(0.3),
             nn.MaxPool2d(2),
             nn.Conv2d(32, 16, kernel_size=3, stride=2, padding=1),
             nn.Flatten(),
@@ -107,7 +108,8 @@ recall = Recall(task="binary", num_classes=2).to(device)
 f1_score = F1Score(task="binary", num_classes=2).to(device)
 confusion_matrix = ConfusionMatrix(task="binary", num_classes=2).to(device)
 loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([0.1], device=device))
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.0001)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode="min", factor=0.5, patience=1)
 for epoch in range(15):
     total_loss = 0.0
     for i, (images, labels) in tqdm(enumerate(train_loader), total=len(train_loader)):
@@ -143,6 +145,7 @@ for epoch in range(15):
     total_loss = 0
     loader = test_loader
 
+    model.eval()
     with torch.no_grad():
         for i, (images, labels) in tqdm(enumerate(loader), total=len(loader)):
             images = images.to(device)
@@ -159,7 +162,9 @@ for epoch in range(15):
             confusion_matrix.update(probs, labels)
 
         val_epoch.append([total_loss / len(loader),accuracy.compute().item(), precision.compute().item(), f1_score.compute().item()])
+        scheduler.step(total_loss / len(loader))
         print("\n____VALIDATION____")
+        print(f"Loss: {total_loss / len(loader):.4f}")
         print(f"Accuracy: {accuracy.compute()}")
         print(f"Precision: {precision.compute()}")
         print(f"Recall: {recall.compute()}")
@@ -171,6 +176,7 @@ for epoch in range(15):
         f1_score.reset()
         confusion_matrix.reset()
         print("\n\n\n")
+    model.train()
 
 def _to_scalar(value):
     if hasattr(value, "compute"):
