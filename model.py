@@ -28,22 +28,24 @@ print(f"images PNEUMONIA: {len(os.listdir(train_pneumonia))}")
 print(f"images NORMAL: {len(os.listdir(train_normal))}")
 
 #%% 
-mean_nums = [0.485, 0.456, 0.406]
+size = 256
+mean_nums = [0.485, 0.456, 0.406] #  numbers come from imagenet nums 
 std_nums = [0.229, 0.224, 0.225]
 from torchvision import transforms
 train_transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((size, size)),
     transforms.ColorJitter(brightness=0.1, contrast=0.1),
     transforms.RandomHorizontalFlip(0.4),
     transforms.ColorJitter(0.1, 0.1, 0.1, 0.1),
     transforms.RandomRotation(25),
-    transforms.RandomResizedCrop(224, scale=(0.8,1.0)),
+    transforms.RandomResizedCrop(size, scale=(0.8,1.0)),
     transforms.ToTensor(),
     transforms.Normalize(mean_nums, std_nums),
 ])
 test_transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((size, size)),
     transforms.ToTensor(),
+    transforms.Normalize(mean_nums, std_nums),
 ])
 # %%
 from torchvision import datasets    
@@ -62,8 +64,8 @@ import matplotlib.pyplot as plt
 # %%
 from torch.utils.data import DataLoader
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=32, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=32)
+test_loader = DataLoader(test_dataset, batch_size=32)
 # %%
 import torch.nn as nn
 class Model(nn.Module):
@@ -87,7 +89,8 @@ class Model(nn.Module):
             nn.MaxPool2d(2),
             nn.Conv2d(32, 16, kernel_size=3, stride=2, padding=1),
             nn.Flatten(),
-            nn.Linear(16 * 4 * 4, 1),
+            nn.Linear(16 * 4 * 4, 256),
+            nn.Linear(256, 1),
         )
     def forward(self, x):
         return self.model(x)
@@ -108,9 +111,9 @@ recall = Recall(task="binary", num_classes=2).to(device)
 f1_score = F1Score(task="binary", num_classes=2).to(device)
 confusion_matrix = ConfusionMatrix(task="binary", num_classes=2).to(device)
 loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([0.1], device=device))
-optimizer = optim.Adam(model.parameters(), lr=0.0001)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode="min", factor=0.5, patience=1)
-for epoch in range(15):
+for epoch in range(10):
     total_loss = 0.0
     for i, (images, labels) in tqdm(enumerate(train_loader), total=len(train_loader)):
         images = images.to(device)
@@ -178,7 +181,7 @@ for epoch in range(15):
         print("\n\n\n")
     model.train()
 
-def _to_scalar(value):
+def to_scalar(value):
     if hasattr(value, "compute"):
         value = value.compute()
     if isinstance(value, torch.Tensor):
@@ -191,31 +194,30 @@ def _to_scalar(value):
     return float(value)
 
 epochs = [entry[0] for entry in train_epoch]
-train_losses = [_to_scalar(entry[1]) for entry in train_epoch]
-val_losses = [_to_scalar(entry[0]) for entry in val_epoch]
-train_accuracy = [_to_scalar(entry[2]) for entry in train_epoch]
-train_precision = [_to_scalar(entry[3]) for entry in train_epoch]
-train_f1 = [_to_scalar(entry[4]) for entry in train_epoch]
-val_accuracy = [_to_scalar(entry[1]) for entry in val_epoch]
-val_precision = [_to_scalar(entry[2]) for entry in val_epoch]
-val_f1 = [_to_scalar(entry[3]) for entry in val_epoch]
+train_losses = [to_scalar(entry[1]) for entry in train_epoch]
+val_losses = [to_scalar(entry[0]) for entry in val_epoch]
+train_accuracy = [to_scalar(entry[2]) for entry in train_epoch]
+train_precision = [to_scalar(entry[3]) for entry in train_epoch]
+train_f1 = [to_scalar(entry[4]) for entry in train_epoch]
+val_accuracy = [to_scalar(entry[1]) for entry in val_epoch]
+val_precision = [to_scalar(entry[2]) for entry in val_epoch]
+val_f1 = [to_scalar(entry[3]) for entry in val_epoch]
 
 fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
 axes = axes.flatten()
 
-def _plot_metric(ax, train_values, val_values, title):
+def plot_metric(ax, train_values, val_values, title):
     ax.plot(epochs[:len(train_values)], train_values, label="Train", color="tab:red")
     if val_values:
         ax.plot(epochs[:len(val_values)], val_values, label="Val", color="tab:blue")
     ax.set_title(title)
     ax.set_xlabel("Epoch")
     ax.set_ylabel(title)
-    ax.grid(True, alpha=0.2)
 
-_plot_metric(axes[0], train_losses, val_losses, "Loss")
-_plot_metric(axes[1], train_accuracy, val_accuracy, "Accuracy")
-_plot_metric(axes[2], train_precision, val_precision, "Precision")
-_plot_metric(axes[3], train_f1, val_f1, "F1 Score")
+plot_metric(axes[0], train_losses, val_losses, "Loss")
+plot_metric(axes[1], train_accuracy, val_accuracy, "Accuracy")
+plot_metric(axes[2], train_precision, val_precision, "Precision")
+plot_metric(axes[3], train_f1, val_f1, "F1 Score")
 
 handles, labels = axes[0].get_legend_handles_labels()
 if handles:
