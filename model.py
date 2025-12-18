@@ -89,8 +89,7 @@ class Model(nn.Module):
             nn.MaxPool2d(2),
             nn.Conv2d(32, 16, kernel_size=3, stride=2, padding=1),
             nn.Flatten(),
-            nn.Linear(16 * 4 * 4, 256),
-            nn.Linear(256, 1),
+            nn.Linear(16 * 4 * 4, 1),
         )
     def forward(self, x):
         return self.model(x)
@@ -105,6 +104,7 @@ model.train()
 # %%
 train_epoch = []
 val_epoch = []
+torch.manual_seed(25)
 accuracy = Accuracy(task="binary", num_classes=2).to(device)
 precision = Precision(task="binary", num_classes=2).to(device)
 recall = Recall(task="binary", num_classes=2).to(device)
@@ -113,7 +113,7 @@ confusion_matrix = ConfusionMatrix(task="binary", num_classes=2).to(device)
 loss_fn = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([0.1], device=device))
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode="min", factor=0.5, patience=1)
-for epoch in range(10):
+for epoch in range(15):
     total_loss = 0.0
     for i, (images, labels) in tqdm(enumerate(train_loader), total=len(train_loader)):
         images = images.to(device)
