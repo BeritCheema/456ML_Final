@@ -1,4 +1,4 @@
-# – Setup
+# Setup
 
 ## 1. Prerequisites
 - `Python 3.12` 
